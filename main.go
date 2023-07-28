@@ -3,11 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/Dreamacro/clash/component/helper"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/Dreamacro/clash/config"
 	C "github.com/Dreamacro/clash/constant"
@@ -27,6 +29,7 @@ var (
 	externalUI         string
 	externalController string
 	secret             string
+	isChild            bool
 )
 
 func init() {
@@ -37,6 +40,7 @@ func init() {
 	flag.StringVar(&secret, "secret", "", "override secret for RESTful API")
 	flag.BoolVar(&version, "v", false, "show current version of clash")
 	flag.BoolVar(&testConfig, "t", false, "test configuration and exit")
+	flag.BoolVar(&isChild, "child", false, "is child process")
 	flag.Parse()
 
 	flagset = map[string]bool{}
@@ -50,6 +54,12 @@ func main() {
 	if version {
 		fmt.Printf("Clash %s %s %s with %s %s\n", C.Version, runtime.GOOS, runtime.GOARCH, runtime.Version(), C.BuildTime)
 		return
+	}
+
+	// If it is running as a child process, it listens for its parent to exit to avoid becoming an orphan process.
+	if isChild {
+		log.Infoln("Clash is running as a child process")
+		go helper.WatchMaster(1000 * time.Millisecond)
 	}
 
 	if homeDir != "" {
