@@ -17,10 +17,16 @@ import (
 	"github.com/samber/lo"
 )
 
+const serverFailureCacheTTL uint32 = 5
+
 func minimalTTL(records []D.RR) uint32 {
-	return lo.MinBy(records, func(r1 D.RR, r2 D.RR) bool {
+	rr := lo.MinBy(records, func(r1 D.RR, r2 D.RR) bool {
 		return r1.Header().Ttl < r2.Header().Ttl
-	}).Header().Ttl
+	})
+	if rr == nil {
+		return 0
+	}
+	return rr.Header().Ttl
 }
 
 func updateTTL(records []D.RR, ttl uint32) {
@@ -41,19 +47,17 @@ func putMsgToCache(c *cache.LruCache, key string, q D.Question, msg *D.Msg) {
 	}
 
 	var ttl uint32
-	switch {
-	case len(msg.Answer) != 0:
-		ttl = minimalTTL(msg.Answer)
-	case len(msg.Ns) != 0:
-		ttl = minimalTTL(msg.Ns)
-	case len(msg.Extra) != 0:
-		ttl = minimalTTL(msg.Extra)
-	default:
-		log.Debugln("[DNS] response msg empty: %#v", msg)
+	if msg.Rcode == D.RcodeServerFailure {
+		// [...] a resolver MAY cache a server failure response.
+		// If it does so it MUST NOT cache it for longer than five (5) minutes [...]
+		ttl = serverFailureCacheTTL
+	} else {
+		ttl = minimalTTL(append(append(msg.Answer, msg.Ns...), msg.Extra...))
+	}
+	if ttl == 0 {
 		return
 	}
-
-	c.SetWithExpire(key, msg.Copy(), time.Now().Add(time.Second*time.Duration(ttl)))
+	c.SetWithExpire(key, msg.Copy(), time.Now().Add(time.Duration(ttl)*time.Second))
 }
 
 func setMsgTTL(msg *D.Msg, ttl uint32) {
